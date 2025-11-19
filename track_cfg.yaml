@@ -1,0 +1,12 @@
+track_cfg: botsort.yaml
+show: true
+video_id: 0
+
+model: detectors/yolo11x.pt
+conf: 0.3
+mode: predict
+batch: 1
+imgsz: 640
+device: cpu
+verbose: false
+save: false

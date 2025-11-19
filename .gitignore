@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+check.py
+edge_detection.py
+color_classifier.py
+detectors/
+data/
