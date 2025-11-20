@@ -126,8 +126,9 @@ class VehicleProcessing:
             if self.frame_id == 1:
                 mode = "w"
             else: mode = "a"
-        with open(self.output, mode) as f:
-            f.writelines(lines)
+        if lines:
+            with open(self.output, mode) as f:
+                f.writelines(lines)
 
     def classify_color(self, frame, boxes):
         start = time.time()
