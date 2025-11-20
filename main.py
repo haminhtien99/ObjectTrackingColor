@@ -185,6 +185,7 @@ if __name__ == "__main__":
     datafolder = 'data'
     show = cfg.pop('show')
     track_cfg = cfg.pop('track_cfg')
+    video_out = cfg.pop('video_out')
     videos = os.listdir(datafolder)
     name = videos[cfg.pop('video_id')]
     datapath = os.path.join(datafolder, name)
@@ -204,7 +205,7 @@ if __name__ == "__main__":
     pbar = tqdm(total=None)
 
     fourcc = cv2.VideoWriter_fourcc(*'XVID')
-    out = cv2.VideoWriter('output.avi', fourcc, 20.0, (960, 540))
+    out = cv2.VideoWriter(video_out, fourcc, 20.0, (960, 540))
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -228,5 +229,6 @@ if __name__ == "__main__":
                 break
     cap.release()
     out.release()
-    cv2.destroyAllWindows()
+    if show:
+        cv2.destroyAllWindows()
 

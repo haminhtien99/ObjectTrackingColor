@@ -27,7 +27,7 @@ class ColorClassifier:
             'white': [
                 [np.array([0, 0, 200], dtype=np.uint8), np.array([180, 50, 255], dtype=np.uint8)],
                 [np.array([0, 0, 190], dtype=np.uint8), np.array([180, 40, 240], dtype=np.uint8)],
-                [np.array([0, 0, 120], dtype=np.uint8), np.array([180, 50, 180], dtype=np.uint8)]
+                [np.array([0, 0, 170], dtype=np.uint8), np.array([180, 50, 174], dtype=np.uint8)]
             ],
             'grey': [
                 [np.array([0, 0, 50], dtype=np.uint8), np.array([180, 50, 200], dtype=np.uint8)]
@@ -76,7 +76,7 @@ class ColorClassifier:
         Check if two adjacent edges of image do not contant too many contour points
         """
         if contour is None:
-            return False
+            return True
 
         h, w = image_shape[:2]
 
@@ -98,9 +98,10 @@ class ColorClassifier:
         res = [contant_points[i]+contant_points[i-1] for i in range(len(contant_points))]
         return 2 in res
 
-    def get_two_largest_color_contours(self, image, min_area=700):
+
+    def get_largest_color_contours(self, image, min_area=1000):
         """
-        Returns list of (color_name, contour, area) for up to two contours, sorted by area desc.
+        Returns list of (color_name, contour, area) contours, sorted by area desc.
         """
         found = []  # (color_name, contour, area, mask)
 
@@ -113,9 +114,8 @@ class ColorClassifier:
         if not found:
             return []
         found.sort(key=lambda x: x[2], reverse=True)
-        if len(found) <= 2:
-            return found
-        return found[:2]
+
+        return found
 
 
     def determine_ground_and_object(self, contours_info, image_shape):
@@ -127,32 +127,25 @@ class ColorClassifier:
             image_shape: Shape of the image (h, w)
 
         Returns:
-            ground_info: (color_name, contour, area) for ground contour
             object_info: (color_name, contour, area) for object contour
         """
-        contour1, contour2 = contours_info[0], contours_info[1]
-
-        # Check which contour touches edges
-        contour1_touches = self.check_contour_touches_edges(contour1[1], image_shape)
-        contour2_touches = self.check_contour_touches_edges(contour2[1], image_shape)
-
         # Determine ground and object based on edge touching
-        if contour1_touches and not contour2_touches:
-            ground_info, object_info = contour1, contour2
-        elif contour2_touches and not contour1_touches:
-            ground_info, object_info = contour2, contour1
-        else:
-            # Both or neither touch edges, use area as tie-breaker (larger area is object)
-            ground_info, object_info = contour2, contour1
+        # use get information max 3 contours
+        for i, contour_info in enumerate(contours_info):
+            contour_touches = self.check_contour_touches_edges(contour_info[1], image_shape)
+            if not contour_touches:
+                return contour_info
+            if i == 2: break
+        return contours_info[1] # else return second contour
 
-        return ground_info, object_info
+
     def detect_image_color(self, image):
         image = cv2.resize(image, (128, 128))
-        contours = self.get_two_largest_color_contours(image)
+        contours = self.get_largest_color_contours(image)
         if len(contours) == 1:
             return contours[0][0]
         if len(contours) == 0:
             return None
-        _, object = self.determine_ground_and_object(contours, image.shape)
+        object = self.determine_ground_and_object(contours, image.shape)
         return object[0]
 
