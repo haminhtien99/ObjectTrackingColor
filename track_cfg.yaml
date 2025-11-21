@@ -1,8 +1,11 @@
-track_cfg: botsort.yaml
+track_cfg: sort.yaml
 show: true
 video_id: 0
+video_out: output.avi
 
-model: detectors/yolo11x.pt
+classifier: color_classifier/resnet18.pth
+
+model: detectors/yolov11x.pt
 conf: 0.3
 mode: predict
 batch: 1

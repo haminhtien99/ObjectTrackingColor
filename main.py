@@ -19,7 +19,7 @@ from trackers.utils.load_yaml import load_yaml
 from ultralytics.utils import ASSETS
 
 from custom_detector import CustomDetector
-from color_classifier import ColorClassifier
+from color_classifier.cnn_classifier import CnnClassifier
 
 
 def load_mask(datapath: str):
@@ -41,16 +41,19 @@ def load_mask(datapath: str):
         return None
 
 class VehicleProcessing:
-    def __init__(self, polygon, cfg_file, predictor, output_file):
+    def __init__(self, polygon, cfg_file, predictor, output_file,
+                 classifier_path, classes):
         self.polygon = polygon
-
+        
         cfg = load_yaml(cfg_file)
         self.tracker = TRACKER_MAP[cfg.tracker_type](cfg, frame_rate=30)
         self.predictor: CustomDetector = predictor
 
         self.output = output_file
         self.frame_id = 0
-        self.color_classifier = ColorClassifier()
+        self.color_classifier = CnnClassifier(
+            classifier_path, predictor.device, classes
+        )
         self.color_dict = {}
 
     def update(self, frame):
@@ -132,27 +135,19 @@ class VehicleProcessing:
 
     def classify_color(self, frame, boxes):
         start = time.time()
-        clone = frame.copy()
+        self.color_dict = self.color_classifier(boxes, frame)
+        classify_time = time.time() - start
 
-        h, w = frame.shape[:2]
+        # save crop to visualization
         for box in boxes:
             if box.id is None:
                 continue
             xyxy = box.xyxy[0]
             x1, y1, x2, y2 = xyxy.astype(np.int32)
 
-            # expand box get more information from background
-            x1 = max(x1 - 10, 0)
-            y1 = max(y1 - 10, 0)
-            x2 = min(x2 + 10, w)
-            y2 = min(y2 + 10, h)
-            crop = clone[y1:y2, x1:x2, :]
-
+            crop = frame[y1:y2, x1:x2, :]
             track_id = int(box.id.item())
-            color = self.color_classifier.detect_image_color(crop)
-            self.color_dict[track_id] = color
-
-            # save cropped to visualization
+            color = self.color_dict[track_id]
             output_folder = self.output.split(".")[0]
             name_crop = f"{track_id:03d}_{color}.jpg"
             crop_folder = os.path.join(output_folder, 'objects')
@@ -160,50 +155,60 @@ class VehicleProcessing:
                 os.makedirs(crop_folder)
             cv2.imwrite(os.path.join(crop_folder, name_crop), crop)
 
-        classify_time = time.time() - start
         return classify_time*1000
 
     def draw(self, frame, boxes):
+        # draw to show image output
         names = self.predictor.model.names
         for box in boxes:
             if box.id is None:
                 continue
-            track_id = box.id.item()
+            track_id = int(box.id.item())
             cls = box.cls[0]
             xyxy = box.xyxy[0]
             x1, y1, x2, y2 = xyxy.astype(np.int32)
             color = self.color_dict[track_id]
-            # draw frame with color object
+
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
-            cv2.putText(frame, f"{int(track_id)}-{names[cls]}-{color}", (x1, y1 - 3), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+            cv2.putText(frame, f"{track_id}-{names[cls]}-{color}", (x1, y1 - 3), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
         cv2.polylines(frame, [self.polygon], isClosed=True, color=(0, 255, 0), thickness=2)
         return frame
 
 
 if __name__ == "__main__":
+    classes = ['black', 'blue', 'grey', 'red', 'white', 'yellow']
+
+    # Get config
     cfg = load_yaml('track_cfg.yaml', return_dict=True)
-    datafolder = 'data'
     show = cfg.pop('show')
     track_cfg = cfg.pop('track_cfg')
+    classifier = cfg.pop('classifier')
     video_out = cfg.pop('video_out')
+
+    datafolder = 'data'
     videos = os.listdir(datafolder)
     name = videos[cfg.pop('video_id')]
     datapath = os.path.join(datafolder, name)
-    videopath = os.path.join(datafolder, name, '1.mp4')
+    polygon = load_mask(datapath)
 
     output_file = os.path.join('outputs', f"{name}.txt")
 
+    # Define detector
     predictor = CustomDetector(overrides=cfg)
     # warmup
     for img in os.listdir(ASSETS):
         predictor(os.path.join(ASSETS, img))
 
-    polygon = load_mask(datapath)
-    vehicle_process = VehicleProcessing(polygon, track_cfg, predictor, output_file)
-    cap = cv2.VideoCapture(videopath)
-    print(f"{'preprocess':>15}{'inference':>15}{'postprocess':>15}{'association':>15}{'classify_time':>15}")
-    pbar = tqdm(total=None)
 
+    vehicle_process = VehicleProcessing(
+        polygon, track_cfg, predictor, output_file,
+        classifier, classes
+    )
+    cap = cv2.VideoCapture(os.path.join(datafolder, name, '1.mp4'))
+
+    print(f"{'preprocess':>15}{'inference':>15}{'postprocess':>15}{'association':>15}{'classify_time':>15}")
+
+    pbar = tqdm(total=None)
     fourcc = cv2.VideoWriter_fourcc(*'XVID')
     out = cv2.VideoWriter(video_out, fourcc, 20.0, (960, 540))
     while True:
@@ -213,6 +218,7 @@ if __name__ == "__main__":
 
         res, processed_frame = vehicle_process.update(frame)
 
+        # Output print
         speed = res.speed
         pbar.set_description(
             f"{speed['preprocess']:>13.2f}ms "
@@ -221,6 +227,7 @@ if __name__ == "__main__":
             f"{speed['association']:>13.2f}ms "
             f"{speed['classify_time']:>13.2f}ms"
         )
+
         resize = cv2.resize(processed_frame, (0, 0), fx=0.5, fy=0.5)
         out.write(resize)
         if show:
